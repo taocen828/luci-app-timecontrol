@@ -206,7 +206,20 @@ var callDailyStatus = rpc.declare({
 function checkFirewallChain() {
 	var fw4 = L.hasSystemFeature('firewall4');
 	if (fw4) {
-		return checkNftablesChain('timecontrol_forward');
+		return Promise.all([
+			checkNftablesChain('timecontrol_forward'),
+			checkNftablesChain('timecontrol_quota')
+		]).then(function (results) {
+			var main = results[0], quota = results[1];
+			return {
+				exists: main.exists || quota.exists,
+				output: (main.output || '') + '\n' + (quota.output || ''),
+				ruleCount: main.ruleCount + quota.ruleCount,
+				table: 'fw4',
+				type: 'nftables',
+				command: 'nft list chain inet fw4 timecontrol_forward/quota'
+			};
+		});
 	} else {
 		return checkIptablesChain('timecontrol_forward');
 	}
