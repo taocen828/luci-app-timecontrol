@@ -103,6 +103,12 @@ read_daily_counter_bytes() {
     echo "$bytes"
 }
 
+reset_daily_counter() {
+    local section="$1"
+    [ -n "$FW4" ] || return 0
+    nft "reset counter inet fw4 $(daily_counter_name "$section")" >/dev/null 2>&1
+}
+
 update_daily_rule() {
     local section="$1" enable limit threshold today saved_date used previous current delta was_reached
     enable=$(config_n_get "$CONF" "$section" "enable" 0)
@@ -117,7 +123,7 @@ update_daily_rule() {
     was_reached=0
     daily_quota_reached "$section" && was_reached=1
     current=$(read_daily_counter_bytes "$section")
-    [ "$saved_date" = "$today" ] || { used=0; previous=0; }
+    [ "$saved_date" = "$today" ] || { used=0; previous=0; reset_daily_counter "$section"; }
     delta=$((current - previous))
     [ "$delta" -ge 0 ] || delta=$current
     [ "$delta" -ge $((threshold * 1024)) ] && used=$((used + 1))
