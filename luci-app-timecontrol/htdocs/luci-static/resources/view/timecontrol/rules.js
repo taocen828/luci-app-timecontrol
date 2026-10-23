@@ -728,22 +728,6 @@ return view.extend({
 			return true;
 		};
 
-		o = addTemporaryDurationOption(s, 'quick', 'blockDuration', _('Temporary Block'), _('Set block duration for selected rules'), 0, 720);
-
-		o.write = function (section_id, value) {
-			return true;
-		};
-
-		o.onchange = function (ev, section_id, value) {
-			/* this.map.save(null, true).then(function () {
-				ui.addTimeLimitedNotification(null, E('p', _('Set temporary block duration for all rules successfully')), 3000, 'success');
-			});
-			this.map.reset();
-			location.reload(); */
-			var targetRules = getTargetRules(ruleSelectType, selectedRules);
-			setTemporaryDurationOption(this, targetRules, 1, value);
-		};
-
 		o = addTemporaryDurationOption(s, 'quick', 'unblockDuration', _('Temporary Unblock'), _('Set unblock duration for selected rules'), 0, 720);
 
 		o.write = function (section_id, value) {
