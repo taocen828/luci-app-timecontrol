@@ -214,7 +214,7 @@ function checkFirewallChain() {
 			return {
 				exists: main.exists || quota.exists,
 				output: (main.output || '') + '\n' + (quota.output || ''),
-				ruleCount: main.ruleCount + quota.ruleCount,
+				ruleCount: main.ruleCount,
 				table: 'fw4',
 				type: 'nftables',
 				command: 'nft list chain inet fw4 timecontrol_forward/quota'
