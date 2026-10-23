@@ -16,6 +16,7 @@ DAILY_STATEFILE="/etc/timecontrol.daily"
 DAILY_RUNTIME_STATE="/tmp/timecontrol.daily"
 DAILY_PERSIST_INTERVAL=300
 DAILY_PERSIST_ELAPSED=0
+DAILY_RULE_CHANGED=0
 
 iptables_w() {
     iptables -w 1 "$@" >/dev/null 2>&1
@@ -80,16 +81,18 @@ create_daily_counters() {
 }
 
 create_daily_counter() {
-    local section="$1" enable macaddrlist
+    local section="$1" enable macaddrlist interface
     enable=$(config_n_get "$CONF" "$section" "enable" 0)
     macaddrlist=$(config_n_get "$CONF" "$section" "macaddrlist")
+    interface=$(config_n_get "$CONF" "$section" "interface")
     [ "$enable" -eq 1 ] 2>/dev/null || return 0
     [ -n "$macaddrlist" ] || return 0
     [ "$(config_n_get "$CONF" "$section" "dailyLimit" 0)" -gt 0 ] 2>/dev/null || return 0
     local counter=$(daily_counter_name "$section")
     nft "add counter inet fw4 $counter" >/dev/null 2>&1
     local macs=$(echo "$macaddrlist" | sed 's/ /,/g')
-    nft "add rule inet fw4 timecontrol_forward ether saddr { ${macs} } counter name $counter" >/dev/null 2>&1
+    nft "add rule inet fw4 timecontrol_quota iifname \"$interface\" ether saddr { ${macs} } counter name $counter" >/dev/null 2>&1
+    nft "add rule inet fw4 timecontrol_quota oifname \"$interface\" ether daddr { ${macs} } counter name $counter" >/dev/null 2>&1
 }
 
 read_daily_counter_bytes() {
@@ -101,7 +104,7 @@ read_daily_counter_bytes() {
 }
 
 update_daily_rule() {
-    local section="$1" enable limit threshold today saved_date used previous current delta
+    local section="$1" enable limit threshold today saved_date used previous current delta was_reached
     enable=$(config_n_get "$CONF" "$section" "enable" 0)
     limit=$(config_n_get "$CONF" "$section" "dailyLimit" 0)
     threshold=$(config_n_get "$CONF" "$section" "dailyThresholdKB" 64)
@@ -111,6 +114,8 @@ update_daily_rule() {
     saved_date=$(daily_state_get "$section" date "$today")
     used=$(daily_state_get "$section" used 0)
     previous=$(daily_state_get "$section" bytes 0)
+    was_reached=0
+    daily_quota_reached "$section" && was_reached=1
     current=$(read_daily_counter_bytes "$section")
     [ "$saved_date" = "$today" ] || { used=0; previous=0; }
     delta=$((current - previous))
@@ -118,6 +123,11 @@ update_daily_rule() {
     [ "$delta" -ge $((threshold * 1024)) ] && used=$((used + 1))
     daily_state_set "$section" "$today" "$used" "$current"
     logger -t timecontrol "daily usage ${used}/${limit} minutes (ID: $section, delta: ${delta}B)"
+    if daily_quota_reached "$section"; then
+        [ "$was_reached" -eq 1 ] || DAILY_RULE_CHANGED=1
+    elif [ "$was_reached" -eq 1 ]; then
+        DAILY_RULE_CHANGED=1
+    fi
 }
 
 daily_quota_reached() {
@@ -127,12 +137,23 @@ daily_quota_reached() {
     [ "$limit" -gt 0 ] 2>/dev/null && [ "$used" -ge "$limit" ] 2>/dev/null
 }
 
+set_daily_quota_hooks() {
+    [ -n "$FW4" ] || return 0
+    local parent handles
+    for parent in mangle_prerouting mangle_postrouting; do
+        handles=$(nft -a list chain inet fw4 "$parent" 2>/dev/null | grep 'timecontrol_quota' | awk '{print $NF}')
+        delete_nftablesRules "$handles" "$parent"
+        nft "insert rule inet fw4 $parent counter jump timecontrol_quota comment \"!fw4: Time control daily quota\"" >/dev/null 2>&1
+    done
+}
+
 update_daily_quotas() {
     load_config
+    DAILY_RULE_CHANGED=0
     config_foreach update_daily_rule rule
     DAILY_PERSIST_ELAPSED=$((DAILY_PERSIST_ELAPSED + 60))
     [ "$DAILY_PERSIST_ELAPSED" -ge "$DAILY_PERSIST_INTERVAL" ] && persist_daily_state
-    Initialize daily
+    [ "$DAILY_RULE_CHANGED" -eq 1 ] && Initialize daily
 }
 
 convert_timeToUTC() {
@@ -350,6 +371,7 @@ add_controlRules() {
     local temporaryControl=$(config_n_get "$CONF" "$1" "temporaryControl" 0)
     local temporaryDuration=$(config_n_get "$CONF" "$1" "temporaryDuration" 0)
     local interface=$(config_n_get "$CONF" "$1" "interface")
+    local dailyLimit=$(config_n_get "$CONF" "$1" "dailyLimit" 0)
     
     if [ $enable -ne 1 ]; then
         return 0
@@ -385,6 +407,15 @@ add_controlRules() {
         days=""
         timerangelist="00:00:00-23:59:59"
         logger -t timecontrol "temporary block $temporaryDuration minutes (ID: $1)"
+    fi
+
+    # A daily-only rule does not install an all-day blacklist rule.
+    # The quota check below will still install the block once the limit is reached.
+    if [ "$dailyLimit" -gt 0 ] 2>/dev/null && [ "$temporaryDuration" -eq 0 ] 2>/dev/null \
+        && { [ -z "$timerangelist" ] || [ "$timerangelist" = "00:00:00-23:59:59" ]; } \
+        && [ -z "$weekdays" ] && ! daily_quota_reached "$1"; then
+        logger -t timecontrol "daily-only rule, no fixed time block (ID: $1)"
+        return 0
     fi
 
     # Daily quota exhaustion is enforced through the existing per-device rule.
@@ -435,6 +466,7 @@ Initialize() {
     else
         set_nftablesChains
         set_nftablesRules
+        set_daily_quota_hooks
     fi
     
     RulesMACAddrList=""
@@ -463,6 +495,12 @@ set_nftablesChains() {
         nft flush chain inet fw4 timecontrol_dstnat
     else
         nft add chain inet fw4 timecontrol_dstnat
+    fi
+
+    if nft list chain inet fw4 timecontrol_quota >/dev/null 2>&1; then
+        nft flush chain inet fw4 timecontrol_quota
+    else
+        nft add chain inet fw4 timecontrol_quota
     fi
 }
 
@@ -727,8 +765,11 @@ stop() {
             rule_handles=$(nft -a list chain inet fw4 $chain | grep "$jumpChain" | awk '{print $NF}')
             delete_nftablesRules "$rule_handles" "$chain"
         done
+        rule_handles=$(nft -a list chain inet fw4 mangle_postrouting 2>/dev/null | grep 'timecontrol_quota' | awk '{print $NF}')
+        delete_nftablesRules "$rule_handles" mangle_postrouting
         nft delete chain inet fw4 timecontrol_forward >/dev/null 2>&1
         nft delete chain inet fw4 timecontrol_dstnat >/dev/null 2>&1
+        nft delete chain inet fw4 timecontrol_quota >/dev/null 2>&1
     fi
     logger -t timecontrol "stopped"
     
