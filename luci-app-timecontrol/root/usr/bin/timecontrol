@@ -155,6 +155,7 @@ status_daily_rule() {
 
 status_daily() {
     config_load "$CONF"
+    TIMECONTROL_ENABLE=$(config_n_get "$CONF" "config" "enable" 0)
     init_daily_state
     config_foreach status_daily_rule rule
 }
