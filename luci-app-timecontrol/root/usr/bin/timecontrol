@@ -12,6 +12,10 @@ FW3_IP6=$(command -v ip6tables 2>/dev/null)
 PIDFILE="/var/run/timecontrol.pid"
 SLEEPTIME=60
 RulesMACAddrList=""
+DAILY_STATEFILE="/etc/timecontrol.daily"
+DAILY_RUNTIME_STATE="/tmp/timecontrol.daily"
+DAILY_PERSIST_INTERVAL=300
+DAILY_PERSIST_ELAPSED=0
 
 iptables_w() {
     iptables -w 1 "$@" >/dev/null 2>&1
@@ -21,6 +25,114 @@ iptables_w() {
 config_n_get() {
     local ret=$(uci -q get "${1}.${2}.${3}")
     echo "${ret:=$4}"
+}
+
+# Daily quota state is kept in volatile storage and checkpointed periodically.
+# Format: section|date|used_minutes|counter_bytes
+init_daily_state() {
+    local today=$(date +%F)
+    local tmp="${DAILY_RUNTIME_STATE}.new"
+    : > "$tmp"
+    while IFS='|' read -r section saved_date used saved_bytes; do
+        [ -n "$section" ] || continue
+        if [ "$saved_date" = "$today" ]; then
+            printf '%s|%s|%s|%s\n' "$section" "$saved_date" "${used:-0}" "${saved_bytes:-0}" >> "$tmp"
+        else
+            printf '%s|%s|0|0\n' "$section" "$today" >> "$tmp"
+        fi
+    done < "$DAILY_STATEFILE" 2>/dev/null
+    mv "$tmp" "$DAILY_RUNTIME_STATE"
+}
+
+daily_state_get() {
+    local section="$1" field="$2" default="$3" line
+    line=$(grep -E "^${section}[|]" "$DAILY_RUNTIME_STATE" 2>/dev/null | tail -n 1)
+    [ -n "$line" ] || { echo "$default"; return; }
+    case "$field" in
+        date) echo "$line" | cut -d'|' -f2 ;;
+        used) echo "$line" | cut -d'|' -f3 ;;
+        bytes) echo "$line" | cut -d'|' -f4 ;;
+        *) echo "$default" ;;
+    esac
+}
+
+daily_state_set() {
+    local section="$1" date_value="$2" used="$3" bytes="$4" tmp="${DAILY_RUNTIME_STATE}.new"
+    awk -F '|' -v s="$section" '$1 != s' "$DAILY_RUNTIME_STATE" 2>/dev/null > "$tmp"
+    printf '%s|%s|%s|%s\n' "$section" "$date_value" "$used" "$bytes" >> "$tmp"
+    mv "$tmp" "$DAILY_RUNTIME_STATE"
+}
+
+persist_daily_state() {
+    local tmp="${DAILY_STATEFILE}.new"
+    awk -F '|' 'NF >= 4 && $1 != "" { print $1 "|" $2 "|" $3 "|" $4 }' "$DAILY_RUNTIME_STATE" 2>/dev/null > "$tmp"
+    mv "$tmp" "$DAILY_STATEFILE"
+    DAILY_PERSIST_ELAPSED=0
+}
+
+daily_counter_name() {
+    echo "tc_daily_$1"
+}
+
+create_daily_counters() {
+    [ -n "$FW4" ] || return 0
+    config_foreach create_daily_counter rule
+}
+
+create_daily_counter() {
+    local section="$1" enable macaddrlist
+    enable=$(config_n_get "$CONF" "$section" "enable" 0)
+    macaddrlist=$(config_n_get "$CONF" "$section" "macaddrlist")
+    [ "$enable" -eq 1 ] 2>/dev/null || return 0
+    [ -n "$macaddrlist" ] || return 0
+    [ "$(config_n_get "$CONF" "$section" "dailyLimit" 0)" -gt 0 ] 2>/dev/null || return 0
+    local counter=$(daily_counter_name "$section")
+    nft "add counter inet fw4 $counter" >/dev/null 2>&1
+    local macs=$(echo "$macaddrlist" | sed 's/ /,/g')
+    nft "add rule inet fw4 timecontrol_forward ether saddr { ${macs} } counter name $counter" >/dev/null 2>&1
+}
+
+read_daily_counter_bytes() {
+    local section="$1" bytes
+    [ -n "$FW4" ] || { echo 0; return; }
+    bytes=$(nft list counter inet fw4 "$(daily_counter_name "$section")" 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "bytes") { print $(i+1); exit }}')
+    case "$bytes" in *[!0-9]*|'') bytes=0;; esac
+    echo "$bytes"
+}
+
+update_daily_rule() {
+    local section="$1" enable limit threshold today saved_date used previous current delta
+    enable=$(config_n_get "$CONF" "$section" "enable" 0)
+    limit=$(config_n_get "$CONF" "$section" "dailyLimit" 0)
+    threshold=$(config_n_get "$CONF" "$section" "dailyThresholdKB" 64)
+    [ "$enable" -eq 1 ] 2>/dev/null || return 0
+    [ "$limit" -gt 0 ] 2>/dev/null || return 0
+    today=$(date +%F)
+    saved_date=$(daily_state_get "$section" date "$today")
+    used=$(daily_state_get "$section" used 0)
+    previous=$(daily_state_get "$section" bytes 0)
+    current=$(read_daily_counter_bytes "$section")
+    [ "$saved_date" = "$today" ] || { used=0; previous=0; }
+    delta=$((current - previous))
+    [ "$delta" -ge 0 ] || delta=$current
+    [ "$delta" -ge $((threshold * 1024)) ] && used=$((used + 1))
+    daily_state_set "$section" "$today" "$used" "$current"
+    logger -t timecontrol "daily usage ${used}/${limit} minutes (ID: $section, delta: ${delta}B)"
+}
+
+daily_quota_reached() {
+    local section="$1" limit used
+    limit=$(config_n_get "$CONF" "$section" "dailyLimit" 0)
+    used=$(daily_state_get "$section" used 0)
+    [ "$limit" -gt 0 ] 2>/dev/null && [ "$used" -ge "$limit" ] 2>/dev/null
+}
+
+update_daily_quotas() {
+    load_config
+    config_foreach update_daily_rule rule
+    DAILY_PERSIST_ELAPSED=$((DAILY_PERSIST_ELAPSED + 60))
+    [ "$DAILY_PERSIST_ELAPSED" -ge "$DAILY_PERSIST_INTERVAL" ] && persist_daily_state
+    Initialize daily
 }
 
 convert_timeToUTC() {
@@ -274,6 +386,13 @@ add_controlRules() {
         timerangelist="00:00:00-23:59:59"
         logger -t timecontrol "temporary block $temporaryDuration minutes (ID: $1)"
     fi
+
+    # Daily quota exhaustion is enforced through the existing per-device rule.
+    if daily_quota_reached "$1"; then
+        days=""
+        timerangelist="00:00:00-23:59:59"
+        logger -t timecontrol "daily quota reached, blocking rule (ID: $1)"
+    fi
     
     set_Rules "$macaddrlist" "$timerangelist" "$days" "$interface" "${CONF}_maclist_$1" 1 "$1"
     delete_conntrack "$macaddrlist" "$interface" 1
@@ -321,6 +440,7 @@ Initialize() {
     RulesMACAddrList=""
     
     config_foreach add_controlRules rule
+    create_daily_counters
     
     local controltype="blacklist"
     if [ $TIMECONTROL_TYPE -ne 0 ]; then
@@ -551,6 +671,7 @@ start() {
     trap reset_sleep_time USR1
     trap stop SIGHUP SIGINT SIGQUIT SIGTERM EXIT
     
+    init_daily_state
     Initialize start
     while true; do
         while [ $SLEEPTIME -gt 0 ]; do
@@ -559,12 +680,14 @@ start() {
         done
         SLEEPTIME=60
         update_temporaryDuration
+        update_daily_quotas
         check_firstRule
     done
 }
 
 stop() {
     logger -t timecontrol "stopping"
+    persist_daily_state
     
     if [ -z "$FW4" ]; then
         local chain jumpChain

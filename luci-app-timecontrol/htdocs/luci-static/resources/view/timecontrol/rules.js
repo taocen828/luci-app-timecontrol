@@ -72,6 +72,14 @@ function rule_availableDuration_txt(s) {
 	});
 }
 
+function rule_dailyLimit_txt(s) {
+	var result = uci.get('timecontrol', s, 'dailyLimit');
+	if (result === null || result === undefined || result === '' || result === '0') {
+		return _('Disabled');
+	}
+	return '<var>' + result + ' ' + _('(minutes/day)') + '</var>';
+}
+
 function rule_Interface_txt(s) {
 	var result = uci.get('timecontrol', s, 'interface');
 	if (result === null || result === undefined || (typeof result === 'string' && result.trim() === '')) {
@@ -813,6 +821,13 @@ return view.extend({
 			return rule_availableDuration_txt(s);
 		};
 
+		o = s.option(form.Value, '', _('Daily Limit'));
+		o.modalonly = false;
+
+		o.textvalue = function (s) {
+			return rule_dailyLimit_txt(s);
+		};
+
 		o = s.option(form.Value, '', _('Week Days'));
 		o.modalonly = false;
 
@@ -859,6 +874,19 @@ return view.extend({
 
 		o = addTemporaryDurationOption(s, 'other', 'temporaryDuration', _('Temporary Duration'),
 			_('When the temporary duration timer ends, it will automatically take effect according to the original rules'), 1, 720);
+
+		o = s.taboption('other', form.Value, 'dailyLimit', _('Daily Internet Limit'),
+			_('Count active Internet traffic minutes; 0 disables the daily limit'));
+		o.modalonly = true;
+		o.datatype = 'and(integer,range(0,1440))';
+		o.placeholder = '0';
+		o.default = '0';
+
+		o = s.taboption('other', form.Value, 'dailyThresholdKB', _('Traffic Threshold per Minute'),
+			_('A minute is counted when this device transfers at least this many KB during the 60-second sample'));
+		o.modalonly = true;
+		o.datatype = 'and(integer,range(1,1048576))';
+		o.default = '64';
 
 		o.cfgvalue = function (section_id) {
 			var value = uci.get('timecontrol', section_id, 'temporaryDuration');

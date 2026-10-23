@@ -1,3 +1,4 @@
 
 config timecontrol 'config'
 	option enable '0'
+	option dailyDefaultThresholdKB '64'
