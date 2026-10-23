@@ -867,6 +867,27 @@ return view.extend({
 
 		addTimeRangeOption(s, 'timed', 'timerangelist', _('Time Ranges'), _('Example') + ': ' + '00:00:00-10:00:00,11:00:00-13:59:59');
 
+		o = s.taboption('other', form.Value, 'dailyLimit', _('Daily Internet Limit'),
+			_('Count active Internet traffic minutes; 0 disables the daily limit'));
+		o.modalonly = true;
+		o.datatype = 'and(integer,range(0,1440))';
+		o.placeholder = '0';
+		o.default = '0';
+		o.rmempty = false;
+		o.cfgvalue = function (section_id) {
+			return uci.get('timecontrol', section_id, 'dailyLimit') || '0';
+		};
+
+		o = s.taboption('other', form.Value, 'dailyThresholdKB', _('Traffic Threshold per Minute'),
+			_('A minute is counted when this device transfers at least this many KB during the 60-second sample'));
+		o.modalonly = true;
+		o.datatype = 'and(integer,range(1,1048576))';
+		o.default = '64';
+		o.rmempty = false;
+	o.cfgvalue = function (section_id) {
+			return uci.get('timecontrol', section_id, 'dailyThresholdKB') || '64';
+		};
+
 		o = s.taboption('other', form.RichListValue, 'temporaryControl', _('Temporary Control'));
 		o.modalonly = true;
 		o.default = '0';
@@ -903,19 +924,6 @@ return view.extend({
 			});
 			return widget.render();
 		};
-
-		o = s.taboption('other', form.Value, 'dailyLimit', _('Daily Internet Limit'),
-			_('Count active Internet traffic minutes; 0 disables the daily limit'));
-		o.modalonly = true;
-		o.datatype = 'and(integer,range(0,1440))';
-		o.placeholder = '0';
-		o.default = '0';
-
-		o = s.taboption('other', form.Value, 'dailyThresholdKB', _('Traffic Threshold per Minute'),
-			_('A minute is counted when this device transfers at least this many KB during the 60-second sample'));
-		o.modalonly = true;
-		o.datatype = 'and(integer,range(1,1048576))';
-		o.default = '64';
 
 		return m.render();
 	}
