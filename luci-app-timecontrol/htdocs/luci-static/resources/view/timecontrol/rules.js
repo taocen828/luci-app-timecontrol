@@ -97,8 +97,7 @@ function rule_dailyStatus_txt(s, status) {
 	var item = status[s];
 	if (!item)
 		return '<var>' + _('Remaining') + ': ' + limit + ' ' + _('(minutes)') + '</var>';
-	return '<var>' + _('Used') + ': ' + item.used + ' ' + _('(minutes)') + '<br>' +
-		_('Remaining') + ': ' + item.remaining + ' ' + _('(minutes)') + '</var>';
+		return '<var>今日使用情况：' + item.used + ' 分钟<br>剩余：' + item.remaining + ' 分钟</var>';
 }
 
 function rule_Interface_txt(s) {
