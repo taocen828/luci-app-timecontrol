@@ -272,13 +272,19 @@ function getFirewallChainStatus() {
 	});
 }
 
-function renderStatus(res) {
+function getEnabledRuleCount() {
+	return getUciSections('rule').filter(function (rule) {
+		return rule.enable === '1';
+	}).length;
+}
+
+function renderStatus(res, enabledRuleCount) {
 	var spanTemp = '<em><span style="color:%s"><strong>%s</strong></span>\t\t<strong>|</strong>\t\t<a href="%s" style="color:%s;"><strong>%s: %d</strong></a></em>';
 	var statusColor = res.exists ? '#059669' : 'red';
 	var statusText = res.exists ? _('Control Enabled') : _('Control Disabled');
 	var ruleCountColor = res.ruleCount > 0 ? '#059669' : '#f59e0b';
 	var href = L.hasSystemFeature('firewall4') ? '/cgi-bin/luci/admin/status/nftables' : '/cgi-bin/luci/admin/status/iptables';
-	var renderHTML = String.format(spanTemp, statusColor, statusText, href, ruleCountColor, _('Control Rules'), res.ruleCount);
+	var renderHTML = String.format(spanTemp, statusColor, statusText, href, ruleCountColor, _('Control Rules'), enabledRuleCount);
 	return renderHTML;
 }
 
@@ -608,7 +614,7 @@ return view.extend({
 			poll.add(function () {
 				return L.resolveDefault(getFirewallChainStatus()).then(function (res) {
 					var view = document.getElementById("firewall_status");
-					view.innerHTML = renderStatus(res);
+					view.innerHTML = renderStatus(res, getEnabledRuleCount());
 				});
 			});
 
