@@ -143,6 +143,22 @@ daily_quota_reached() {
     [ "$limit" -gt 0 ] 2>/dev/null && [ "$used" -ge "$limit" ] 2>/dev/null
 }
 
+status_daily_rule() {
+    local section="$1" limit used remaining
+    limit=$(config_n_get "$CONF" "$section" "dailyLimit" 0)
+    [ "$limit" -gt 0 ] 2>/dev/null || return 0
+    used=$(daily_state_get "$section" used 0)
+    remaining=$((limit - used))
+    [ "$remaining" -ge 0 ] || remaining=0
+    printf '%s|%s|%s|%s|%s\n' "$section" "$(date +%F)" "$used" "$limit" "$remaining"
+}
+
+status_daily() {
+    config_load "$CONF"
+    init_daily_state
+    config_foreach status_daily_rule rule
+}
+
 set_daily_quota_hooks() {
     [ -n "$FW4" ] || return 0
     local parent handles
@@ -797,6 +813,9 @@ stop() {
 }
 
 case "$1" in
+    status)
+        status_daily
+    ;;
     stop)
         if [ -f "$PIDFILE" ]; then
             pid=$(cat "$PIDFILE" 2>/dev/null)

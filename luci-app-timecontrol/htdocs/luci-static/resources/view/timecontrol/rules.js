@@ -80,6 +80,27 @@ function rule_dailyLimit_txt(s) {
 	return '<var>' + result + ' ' + _('(minutes/day)') + '</var>';
 }
 
+function dailyStatusMap(output) {
+	var result = {};
+	(output || '').trim().split('\n').forEach(function (line) {
+		var fields = line.trim().split('|');
+		if (fields.length >= 5)
+			result[fields[0]] = { used: fields[2], limit: fields[3], remaining: fields[4] };
+	});
+	return result;
+}
+
+function rule_dailyStatus_txt(s, status) {
+	var limit = uci.get('timecontrol', s, 'dailyLimit');
+	if (!limit || limit === '0')
+		return _('Disabled');
+	var item = status[s];
+	if (!item)
+		return '<var>' + _('Remaining') + ': ' + limit + ' ' + _('(minutes)') + '</var>';
+	return '<var>' + _('Used') + ': ' + item.used + ' ' + _('(minutes)') + '<br>' +
+		_('Remaining') + ': ' + item.remaining + ' ' + _('(minutes)') + '</var>';
+}
+
 function rule_Interface_txt(s) {
 	var result = uci.get('timecontrol', s, 'interface');
 	if (result === null || result === undefined || (typeof result === 'string' && result.trim() === '')) {
@@ -172,6 +193,12 @@ function getUciSections(option, config = 'timecontrol') {
 }
 
 var callExec = rpc.declare({
+	object: 'file',
+	method: 'exec',
+	params: ['command', 'params', 'env']
+});
+
+var callDailyStatus = rpc.declare({
 	object: 'file',
 	method: 'exec',
 	params: ['command', 'params', 'env']
@@ -540,7 +567,8 @@ return view.extend({
 	load: function () {
 		return Promise.all([
 			this.callHostHints(),
-			uci.load('timecontrol')
+			uci.load('timecontrol'),
+			L.resolveDefault(callDailyStatus('/usr/bin/timecontrol', ['status']), { stdout: '' })
 		]);
 	},
 
@@ -555,6 +583,7 @@ return view.extend({
 
 	renderRules: function (data) {
 		var hosts = data[0],
+			dailyStatus = dailyStatusMap(data[2] && data[2].stdout),
 			m, s, o;
 
 		m = new form.Map('timecontrol', _('Internet Time Control'), _('Users can limit Internet usage time by MAC address, support iptables/nftables IPv4/IPv6') + '<br/>' +
@@ -811,6 +840,13 @@ return view.extend({
 
 		o.textvalue = function (s) {
 			return rule_dailyLimit_txt(s);
+		};
+
+		o = s.option(form.Value, '', _('Daily Status'));
+		o.modalonly = false;
+
+		o.textvalue = function (section_id) {
+			return rule_dailyStatus_txt(section_id, dailyStatus);
 		};
 
 		o = s.option(form.Value, '', _('Week Days'));

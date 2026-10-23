@@ -241,3 +241,12 @@ msgstr "每分钟流量阈值"
 
 msgid "A minute is counted when this device transfers at least this many KB during the 60-second sample"
 msgstr "本分钟流量达到此阈值时计入 1 分钟"
+
+msgid "Daily Status"
+msgstr "今日使用情况"
+
+msgid "Used"
+msgstr "已用"
+
+msgid "Remaining"
+msgstr "剩余"
