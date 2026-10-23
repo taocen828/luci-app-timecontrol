@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'luci-app-timecontrol/**'
+  workflow_dispatch:
 
 env:
   TZ: Asia/Shanghai
