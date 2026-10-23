@@ -841,7 +841,7 @@ return view.extend({
 			return rule_dailyLimit_txt(s);
 		};
 
-		o = s.option(form.Value, '', _('Daily Status'));
+		o = s.option(form.Value, '', '今日使用情况');
 		o.modalonly = false;
 
 		o.textvalue = function (section_id) {
