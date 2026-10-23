@@ -341,7 +341,8 @@ function getAvailableDuration(timeRanges, s) {
 				}
 			}
 		}
-	} else if (Array.isArray(timeRanges) && (timeRanges.indexOf('00:00:00-23:59:59') >= 0) || (timeRanges.length === 0)) {
+	} else if (!timeRanges || (Array.isArray(timeRanges) &&
+		(timeRanges.indexOf('00:00:00-23:59:59') >= 0 || timeRanges.length === 0))) {
 		return 0;
 	}
 
@@ -875,23 +876,11 @@ return view.extend({
 		o = addTemporaryDurationOption(s, 'other', 'temporaryDuration', _('Temporary Duration'),
 			_('When the temporary duration timer ends, it will automatically take effect according to the original rules'), 1, 720);
 
-		o = s.taboption('other', form.Value, 'dailyLimit', _('Daily Internet Limit'),
-			_('Count active Internet traffic minutes; 0 disables the daily limit'));
-		o.modalonly = true;
-		o.datatype = 'and(integer,range(0,1440))';
-		o.placeholder = '0';
-		o.default = '0';
-
-		o = s.taboption('other', form.Value, 'dailyThresholdKB', _('Traffic Threshold per Minute'),
-			_('A minute is counted when this device transfers at least this many KB during the 60-second sample'));
-		o.modalonly = true;
-		o.datatype = 'and(integer,range(1,1048576))';
-		o.default = '64';
-
 		o.cfgvalue = function (section_id) {
 			var value = uci.get('timecontrol', section_id, 'temporaryDuration');
 			var temporaryDuration = value == 0 ? null : value;
-			if (this.keylist.indexOf(temporaryDuration) < 0 && (typeof temporaryDuration === 'string' && temporaryDuration.trim() !== '')) {
+			if (Array.isArray(this.keylist) && this.keylist.indexOf(temporaryDuration) < 0 &&
+				(typeof temporaryDuration === 'string' && temporaryDuration.trim() !== '')) {
 				this.value(temporaryDuration, temporaryDuration + ' ' + _('(minutes)'));
 				sortList(this);
 			}
@@ -914,6 +903,19 @@ return view.extend({
 			});
 			return widget.render();
 		};
+
+		o = s.taboption('other', form.Value, 'dailyLimit', _('Daily Internet Limit'),
+			_('Count active Internet traffic minutes; 0 disables the daily limit'));
+		o.modalonly = true;
+		o.datatype = 'and(integer,range(0,1440))';
+		o.placeholder = '0';
+		o.default = '0';
+
+		o = s.taboption('other', form.Value, 'dailyThresholdKB', _('Traffic Threshold per Minute'),
+			_('A minute is counted when this device transfers at least this many KB during the 60-second sample'));
+		o.modalonly = true;
+		o.datatype = 'and(integer,range(1,1048576))';
+		o.default = '64';
 
 		return m.render();
 	}
