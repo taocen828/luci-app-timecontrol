@@ -385,6 +385,12 @@ add_controlRules() {
         fi
     fi
     
+    # A reached daily quota overrides any temporary unblock.
+    if daily_quota_reached "$1"; then
+        temporaryDuration=0
+        temporaryControl=1
+    fi
+
     #temporary unblock
     if [ $temporaryDuration -gt 0 ] && [ $temporaryControl -eq 0 ]; then
         logger -t timecontrol "temporary unblock $temporaryDuration minutes (ID: $1)"
