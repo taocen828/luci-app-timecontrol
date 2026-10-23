@@ -220,3 +220,24 @@ msgstr "拒绝匹配的数据包(\"TCP reset\"或\"ICMP type port-unreachable\")
 
 msgid "WAN Interface"
 msgstr "WAN接口"
+
+msgid "Daily Limit"
+msgstr "每日限时"
+
+msgid "(minutes/day)"
+msgstr "（分钟/天）"
+
+msgid "Disabled"
+msgstr "未启用"
+
+msgid "Daily Internet Limit"
+msgstr "每日上网限时"
+
+msgid "Count active Internet traffic minutes; 0 disables the daily limit"
+msgstr "统计活跃联网分钟数；设置为 0 时关闭每日限时"
+
+msgid "Traffic Threshold per Minute"
+msgstr "每分钟流量阈值"
+
+msgid "A minute is counted when this device transfers at least this many KB during the 60-second sample"
+msgstr "本分钟流量达到此阈值时计入 1 分钟"
