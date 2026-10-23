@@ -97,7 +97,7 @@ function rule_dailyStatus_txt(s, status) {
 	var item = status[s];
 	if (!item)
 		return '<var>' + _('Remaining') + ': ' + limit + ' ' + _('(minutes)') + '</var>';
-		return '<var>今日使用情况：' + item.used + ' 分钟<br>剩余：' + item.remaining + ' 分钟</var>';
+		return '<var>已使用：' + item.used + ' 分钟<br>剩余：' + item.remaining + ' 分钟</var>';
 }
 
 function rule_Interface_txt(s) {
@@ -841,7 +841,7 @@ return view.extend({
 			return rule_dailyLimit_txt(s);
 		};
 
-		o = s.option(form.Value, '', '今日使用情况');
+		o = s.option(form.Value, '', '已使用');
 		o.modalonly = false;
 
 		o.textvalue = function (section_id) {
